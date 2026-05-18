@@ -51,6 +51,7 @@ Environment variables (set in `.env`):
 | `GET` | `/bootstrap` | Yes | Model bootstrap/download status |
 | `GET` | `/status` | Yes | Full system status (all above combined) |
 | `GET` | `/api/status` | Yes | Dashboard-formatted status with inference metrics |
+| `GET` | `/api/host-agent/diagnostics` | Yes | Host-agent URL, gateway, auth, and live probe diagnostics |
 
 ### Preflight
 

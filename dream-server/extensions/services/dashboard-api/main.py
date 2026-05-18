@@ -35,7 +35,8 @@ from fastapi.middleware.cors import CORSMiddleware
 # --- Local modules ---
 from config import (
     SERVICES, DATA_DIR, INSTALL_DIR, SIDEBAR_ICONS, MANIFEST_ERRORS,
-    AGENT_URL, DREAM_AGENT_KEY,
+    AGENT_HOST, AGENT_PORT, AGENT_URL, DREAM_AGENT_KEY,
+    _detect_container_default_gateway, _running_inside_container,
 )
 from models import (
     GPUInfo, ServiceStatus, DiskUsage, ModelInfo, BootstrapStatus,
@@ -103,6 +104,10 @@ _SETTINGS_SUMMARY_CACHE_TTL = 5.0
 _SETTINGS_CONFIG_CACHE_TTL = 15.0
 _SETTINGS_ENV_CACHE_TTL = 5.0
 _SERVICE_POLL_INTERVAL = 10.0  # background health check interval
+_host_agent_probe_state: dict[str, Optional[str]] = {
+    "last_success_at": None,
+    "last_error": None,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +158,54 @@ def _read_installed_version() -> str:
             pass
 
     return app.version
+
+
+def _probe_host_agent_health() -> dict[str, Any]:
+    """Probe the host-agent health endpoint and update diagnostic state."""
+    started = time.monotonic()
+    url = f"{AGENT_URL}/health"
+    headers = {}
+    if DREAM_AGENT_KEY:
+        headers["Authorization"] = f"Bearer {DREAM_AGENT_KEY}"
+    request = urllib.request.Request(url, headers=headers)
+
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            status_code = int(getattr(response, "status", response.getcode()))
+            raw = response.read(2048).decode("utf-8", errors="replace")
+            try:
+                body: Any = json.loads(raw) if raw else None
+            except json.JSONDecodeError:
+                body = raw[:500]
+
+        latency_ms = round((time.monotonic() - started) * 1000)
+        success_at = datetime.now(timezone.utc).isoformat()
+        _host_agent_probe_state["last_success_at"] = success_at
+        _host_agent_probe_state["last_error"] = None
+        return {
+            "available": status_code == 200,
+            "status_code": status_code,
+            "latency_ms": latency_ms,
+            "response": body,
+            "error": None,
+        }
+    except urllib.error.HTTPError as exc:
+        latency_ms = round((time.monotonic() - started) * 1000)
+        status_code = exc.code
+        detail = f"HTTP {exc.code}: {exc.reason}"
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        latency_ms = round((time.monotonic() - started) * 1000)
+        status_code = None
+        detail = str(getattr(exc, "reason", exc))
+
+    _host_agent_probe_state["last_error"] = detail
+    return {
+        "available": False,
+        "status_code": status_code,
+        "latency_ms": latency_ms,
+        "response": None,
+        "error": detail,
+    }
 
 
 def _normalize_timestamp_precision(timestamp: str) -> str:
@@ -637,6 +690,31 @@ app.include_router(tailscale.router)
 async def health():
     """API health check."""
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/host-agent/diagnostics", dependencies=[Depends(verify_api_key)])
+async def host_agent_diagnostics():
+    """Report how dashboard-api resolves and reaches the host agent."""
+    inside_container = await asyncio.to_thread(_running_inside_container)
+    default_gateway = await asyncio.to_thread(_detect_container_default_gateway)
+    probe = await asyncio.to_thread(_probe_host_agent_health)
+    probe["last_success_at"] = _host_agent_probe_state["last_success_at"]
+    probe["last_error"] = _host_agent_probe_state["last_error"]
+
+    return {
+        "configured": {
+            "url": AGENT_URL,
+            "host": AGENT_HOST,
+            "port": AGENT_PORT,
+            "dream_agent_key_configured": bool(DREAM_AGENT_KEY),
+            "dream_agent_host_explicit": bool(os.environ.get("DREAM_AGENT_HOST", "").strip()),
+        },
+        "container": {
+            "inside_container": inside_container,
+            "default_gateway": default_gateway or None,
+        },
+        "probe": probe,
+    }
 
 
 # --- Preflight ---
