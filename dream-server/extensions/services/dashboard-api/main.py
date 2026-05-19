@@ -309,17 +309,55 @@ def _serialize_model(model_info) -> Optional[dict]:
     }
 
 
+def _service_semantics(service_id: str, status: str) -> dict:
+    config = SERVICES.get(service_id, {})
+    category = config.get("category", "optional")
+    required = category == "core"
+
+    if status == "healthy":
+        state = "ready"
+        severity = "ok"
+        counts_as_issue = False
+    elif status == "not_deployed":
+        state = "disabled"
+        severity = "disabled"
+        counts_as_issue = False
+    elif status == "unknown" and not required:
+        state = "unknown"
+        severity = "unknown"
+        counts_as_issue = False
+    elif required:
+        state = "blocked"
+        severity = "critical"
+        counts_as_issue = True
+    else:
+        state = "attention"
+        severity = "warning"
+        counts_as_issue = True
+
+    return {
+        "category": category,
+        "required": required,
+        "impact": "core" if required else "optional",
+        "state": state,
+        "severity": severity,
+        "countsAsIssue": counts_as_issue,
+    }
+
+
 def _serialize_services(service_statuses: list[ServiceStatus], uptime: int) -> list[dict]:
-    return [
-        {
+    serialized = []
+    for service in service_statuses:
+        item = {
             "id": service.id,
             "name": service.name,
             "status": service.status,
             "port": service.external_port,
             "uptime": uptime if service.status == "healthy" else None,
         }
-        for service in service_statuses
-    ]
+        item.update(_service_semantics(service.id, service.status))
+        serialized.append(item)
+    return serialized
 
 
 def _fallback_services() -> list[dict]:
@@ -328,13 +366,15 @@ def _fallback_services() -> list[dict]:
         external_port = config.get("external_port", config.get("port", 0))
         if not external_port:
             continue
-        links.append({
+        item = {
             "id": service_id,
             "name": config.get("name", service_id),
             "status": "unknown",
             "port": external_port,
             "uptime": None,
-        })
+        }
+        item.update(_service_semantics(service_id, "unknown"))
+        links.append(item)
     return links
 
 

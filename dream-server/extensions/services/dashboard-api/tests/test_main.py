@@ -599,8 +599,11 @@ class TestStatusEndpoint:
 
 class TestApiStatusServiceSerialization:
 
-    def test_serialize_services_includes_service_id(self):
+    def test_serialize_services_includes_service_id_and_semantics(self, monkeypatch):
         from models import ServiceStatus
+        monkeypatch.setattr("main.SERVICES", {
+            "llama-server": {"category": "core"},
+        })
         services = [
             ServiceStatus(
                 id="llama-server",
@@ -619,14 +622,65 @@ class TestApiStatusServiceSerialization:
             "status": "healthy",
             "port": 11434,
             "uptime": 42,
+            "category": "core",
+            "required": True,
+            "impact": "core",
+            "state": "ready",
+            "severity": "ok",
+            "countsAsIssue": False,
         }]
 
-    def test_fallback_services_include_service_ids(self, monkeypatch):
+    def test_serialize_optional_not_deployed_is_disabled(self, monkeypatch):
+        from models import ServiceStatus
+        monkeypatch.setattr("main.SERVICES", {
+            "tailscale": {"category": "optional"},
+        })
+        services = [
+            ServiceStatus(
+                id="tailscale",
+                name="Tailscale",
+                port=0,
+                external_port=0,
+                status="not_deployed",
+            )
+        ]
+
+        serialized = _serialize_services(services, uptime=42)
+
+        assert serialized[0]["required"] is False
+        assert serialized[0]["impact"] == "optional"
+        assert serialized[0]["state"] == "disabled"
+        assert serialized[0]["severity"] == "disabled"
+        assert serialized[0]["countsAsIssue"] is False
+
+    def test_optional_unknown_does_not_count_as_issue(self, monkeypatch):
+        from models import ServiceStatus
+        monkeypatch.setattr("main.SERVICES", {
+            "optional-tool": {"category": "optional"},
+        })
+        services = [
+            ServiceStatus(
+                id="optional-tool",
+                name="Optional Tool",
+                port=8080,
+                external_port=8080,
+                status="unknown",
+            )
+        ]
+
+        serialized = _serialize_services(services, uptime=42)
+
+        assert serialized[0]["state"] == "unknown"
+        assert serialized[0]["severity"] == "unknown"
+        assert serialized[0]["countsAsIssue"] is False
+
+    def test_fallback_services_include_service_ids_and_semantics(self, monkeypatch):
         monkeypatch.setattr("main.SERVICES", {
             "dashboard-api": {
                 "name": "Dashboard API (System Status)",
                 "port": 3002,
                 "external_port": 3002,
+                "category": "core",
             }
         })
 
@@ -638,6 +692,12 @@ class TestApiStatusServiceSerialization:
             "status": "unknown",
             "port": 3002,
             "uptime": None,
+            "category": "core",
+            "required": True,
+            "impact": "core",
+            "state": "blocked",
+            "severity": "critical",
+            "countsAsIssue": True,
         }]
 
 
