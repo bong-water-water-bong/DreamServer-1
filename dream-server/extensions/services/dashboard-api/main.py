@@ -506,6 +506,76 @@ def _serialize_model(model_info) -> Optional[dict]:
     }
 
 
+HERMES_MIN_CONTEXT = 65536
+HERMES_TARGET_CONTEXT = 131072
+
+
+def _build_model_readiness_payload(
+    *,
+    model_info: Optional[ModelInfo],
+    bootstrap_info: BootstrapStatus,
+    loaded_model: Optional[str],
+    runtime_context: Optional[int],
+) -> dict[str, Any]:
+    configured_context = model_info.context_length if model_info else None
+    effective_context = runtime_context or configured_context
+    meets_hermes_minimum = bool(effective_context and effective_context >= HERMES_MIN_CONTEXT)
+    meets_hermes_target = bool(effective_context and effective_context >= HERMES_TARGET_CONTEXT)
+    has_loaded_model = bool(loaded_model)
+    ready = has_loaded_model and meets_hermes_minimum
+
+    issues: list[str] = []
+    if not has_loaded_model:
+        issues.append("No model is currently reported as loaded.")
+    if not meets_hermes_minimum:
+        issues.append(f"Context is below Hermes minimum ({HERMES_MIN_CONTEXT}).")
+    if bootstrap_info.active:
+        issues.append("Full model is still downloading; bootstrap model is serving first-run traffic.")
+
+    if ready and bootstrap_info.active:
+        status = "bootstrap"
+    elif ready:
+        status = "ready"
+    else:
+        status = "blocked"
+
+    return {
+        "ready": ready,
+        "status": status,
+        "activeModel": loaded_model,
+        "configuredModel": {
+            "name": model_info.name,
+            "contextLength": configured_context,
+            "quantization": model_info.quantization,
+            "sizeGb": model_info.size_gb,
+        } if model_info else None,
+        "bootstrap": {
+            "active": bootstrap_info.active,
+            "model": bootstrap_info.model_name,
+            "percent": bootstrap_info.percent,
+            "downloadedGb": bootstrap_info.downloaded_gb,
+            "totalGb": bootstrap_info.total_gb,
+            "etaSeconds": bootstrap_info.eta_seconds,
+        },
+        "context": {
+            "configured": configured_context,
+            "runtime": runtime_context,
+            "effective": effective_context,
+            "hermesMinimum": HERMES_MIN_CONTEXT,
+            "hermesTarget": HERMES_TARGET_CONTEXT,
+            "meetsHermesMinimum": meets_hermes_minimum,
+            "meetsHermesTarget": meets_hermes_target,
+        },
+        "hermes": {
+            "compatible": meets_hermes_minimum,
+            "targetReady": meets_hermes_target,
+            "minimumContext": HERMES_MIN_CONTEXT,
+            "targetContext": HERMES_TARGET_CONTEXT,
+        },
+        "issues": issues,
+    }
+
+
 def _service_semantics(service_id: str, status: str) -> dict:
     config = SERVICES.get(service_id, {})
     category = config.get("category", "optional")
@@ -1088,6 +1158,23 @@ async def model(api_key: str = Depends(verify_api_key)):
 @app.get("/bootstrap", response_model=BootstrapStatus)
 async def bootstrap(api_key: str = Depends(verify_api_key)):
     return await asyncio.to_thread(get_bootstrap_status)
+
+
+@app.get("/api/model-readiness")
+async def api_model_readiness(api_key: str = Depends(verify_api_key)):
+    """Return first-run model/context readiness for Hermes and chat."""
+    model_info, bootstrap_info, loaded_model = await asyncio.gather(
+        asyncio.to_thread(get_model_info),
+        asyncio.to_thread(get_bootstrap_status),
+        get_loaded_model(),
+    )
+    runtime_context = await get_llama_context_size(model_hint=loaded_model)
+    return _build_model_readiness_payload(
+        model_info=model_info,
+        bootstrap_info=bootstrap_info,
+        loaded_model=loaded_model,
+        runtime_context=runtime_context,
+    )
 
 
 @app.get("/status", response_model=FullStatus)

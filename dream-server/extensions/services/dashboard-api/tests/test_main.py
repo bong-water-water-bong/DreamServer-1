@@ -9,6 +9,7 @@ import pytest
 from main import (
     TTLCache,
     _build_api_status,
+    _build_model_readiness_payload,
     _build_readiness_payload,
     _fallback_services,
     _read_installed_version,
@@ -690,6 +691,75 @@ class TestCoreEndpoints:
         resp = test_client.get("/bootstrap", headers=test_client.auth_headers)
         assert resp.status_code == 200
         assert resp.json()["active"] is False
+
+
+# --- model readiness ---
+
+
+class TestModelReadiness:
+
+    def test_ready_when_loaded_context_meets_hermes_minimum(self):
+        from models import BootstrapStatus, ModelInfo
+
+        result = _build_model_readiness_payload(
+            model_info=ModelInfo(name="qwen", size_gb=6.0, context_length=131072, quantization="GGUF"),
+            bootstrap_info=BootstrapStatus(active=False),
+            loaded_model="qwen",
+            runtime_context=131072,
+        )
+
+        assert result["ready"] is True
+        assert result["status"] == "ready"
+        assert result["context"]["meetsHermesMinimum"] is True
+        assert result["context"]["meetsHermesTarget"] is True
+        assert result["hermes"]["compatible"] is True
+
+    def test_bootstrap_can_be_hermes_compatible_before_full_model_ready(self):
+        from models import BootstrapStatus, ModelInfo
+
+        result = _build_model_readiness_payload(
+            model_info=ModelInfo(name="qwen3.5-2b", size_gb=1.5, context_length=65536, quantization="GGUF"),
+            bootstrap_info=BootstrapStatus(active=True, model_name="full-model.gguf", percent=42.0),
+            loaded_model="qwen3.5-2b",
+            runtime_context=65536,
+        )
+
+        assert result["ready"] is True
+        assert result["status"] == "bootstrap"
+        assert result["context"]["meetsHermesMinimum"] is True
+        assert result["context"]["meetsHermesTarget"] is False
+        assert any("Full model is still downloading" in issue for issue in result["issues"])
+
+    def test_context_below_hermes_minimum_blocks_readiness(self):
+        from models import BootstrapStatus, ModelInfo
+
+        result = _build_model_readiness_payload(
+            model_info=ModelInfo(name="small", size_gb=1.0, context_length=8192),
+            bootstrap_info=BootstrapStatus(active=False),
+            loaded_model="small",
+            runtime_context=8192,
+        )
+
+        assert result["ready"] is False
+        assert result["status"] == "blocked"
+        assert result["hermes"]["compatible"] is False
+        assert any("Context is below Hermes minimum" in issue for issue in result["issues"])
+
+    def test_model_readiness_endpoint(self, test_client, monkeypatch):
+        from models import BootstrapStatus, ModelInfo
+
+        monkeypatch.setattr("main.get_model_info", lambda: ModelInfo(name="qwen", size_gb=6.0, context_length=131072))
+        monkeypatch.setattr("main.get_bootstrap_status", lambda: BootstrapStatus(active=False))
+        monkeypatch.setattr("main.get_loaded_model", AsyncMock(return_value="qwen"))
+        monkeypatch.setattr("main.get_llama_context_size", AsyncMock(return_value=131072))
+
+        resp = test_client.get("/api/model-readiness", headers=test_client.auth_headers)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ready"] is True
+        assert data["activeModel"] == "qwen"
+        assert data["hermes"]["targetReady"] is True
 
 
 # --- /status endpoint (FullStatus) ---
