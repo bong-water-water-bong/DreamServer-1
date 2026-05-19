@@ -1047,6 +1047,26 @@ def _read_update_status() -> dict:
     return data if isinstance(data, dict) else {"status": "unknown"}
 
 
+def _fail_stale_update_status(data: dict) -> dict:
+    """Convert a non-live queued/running update record into a terminal failure."""
+    if data.get("status") not in {"queued", "running"}:
+        return data
+
+    action = data.get("action")
+    if not isinstance(action, str) or not action:
+        action = "update"
+
+    fields = {
+        key: value
+        for key, value in data.items()
+        if key not in {"status", "action", "updated_at", "error", "finished_at"}
+    }
+    fields["error"] = data.get("error") or "Update process exited before reporting completion."
+    fields["finished_at"] = _iso_now()
+    _write_update_status("failed", action, **fields)
+    return _read_update_status()
+
+
 def _find_update_script() -> Path | None:
     for candidate in (
         INSTALL_DIR / "dream-update.sh",
@@ -1375,6 +1395,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             running = _update_thread is not None and _update_thread.is_alive()
         if running:
             data = {**data, "status": "running"}
+        else:
+            data = _fail_stale_update_status(data)
         json_response(self, 200, data)
 
     def _handle_update_action(self):
@@ -1485,6 +1507,13 @@ class AgentHandler(BaseHTTPRequestHandler):
                     _write_update_status(
                         "failed", "update",
                         error=f"Update failed: {exc}",
+                        finished_at=_iso_now(),
+                    )
+                except Exception as exc:
+                    logger.exception("Unhandled update failure")
+                    _write_update_status(
+                        "failed", "update",
+                        error=f"Update failed unexpectedly: {exc}",
                         finished_at=_iso_now(),
                     )
 

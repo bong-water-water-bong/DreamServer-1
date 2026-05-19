@@ -435,6 +435,98 @@ class TestUpdateWire:
             server.server_close()
             thread.join(timeout=2)
 
+    def test_status_marks_stale_running_update_failed(self, tmp_path, monkeypatch):
+        import threading
+        import urllib.request
+        from http.server import HTTPServer
+
+        install_dir = tmp_path / "dream-server"
+        install_dir.mkdir()
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "wire-test-secret")
+        monkeypatch.setattr(_mod, "_update_thread", None)
+        _mod._write_update_status("running", "update", started_at="2026-01-01T00:00:00+00:00")
+
+        server = HTTPServer(("127.0.0.1", 0), _mod.AgentHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/update/status",
+                headers={"Authorization": "Bearer wire-test-secret"},
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                status = json.loads(resp.read().decode("utf-8"))
+
+            assert resp.status == 200
+            assert status["status"] == "failed"
+            assert status["action"] == "update"
+            assert "before reporting completion" in status["error"]
+            assert _mod._read_update_status()["status"] == "failed"
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_start_records_unexpected_background_failure(self, tmp_path, monkeypatch):
+        import threading
+        import urllib.request
+        from http.server import HTTPServer
+
+        install_dir = tmp_path / "dream-server"
+        install_dir.mkdir()
+
+        def fail_update(action, *args, timeout):
+            raise ValueError("boom")
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "wire-test-secret")
+        monkeypatch.setattr(_mod, "_update_thread", None)
+        monkeypatch.setattr(_mod, "_run_update_script", fail_update)
+
+        server = HTTPServer(("127.0.0.1", 0), _mod.AgentHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/update/start",
+                data=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer wire-test-secret",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                accepted = json.loads(resp.read().decode("utf-8"))
+
+            assert resp.status == 202
+            assert accepted["status"] == "started"
+
+            deadline = time.time() + 2
+            status = {}
+            while time.time() < deadline:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/v1/update/status",
+                    headers={"Authorization": "Bearer wire-test-secret"},
+                )
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    status = json.loads(resp.read().decode("utf-8"))
+                if status.get("status") == "failed":
+                    break
+                time.sleep(0.05)
+
+            assert status["status"] == "failed"
+            assert "unexpectedly" in status["error"]
+            assert "boom" in status["error"]
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
 
 class TestComposeToggleWire:
     """End-to-end HTTP test for built-in compose toggles via the host agent."""
