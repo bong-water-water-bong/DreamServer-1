@@ -29,6 +29,7 @@ echo "[gate] contracts"
 bash tests/contracts/test-installer-contracts.sh
 bash tests/contracts/test-preflight-fixtures.sh
 bash tests/contracts/test-installer-hardening.sh
+"$PYTHON_CMD" tests/contracts/test-network-exposure-contracts.py
 
 echo "[gate] smoke"
 bash tests/smoke/linux-amd.sh
