@@ -132,3 +132,28 @@ def test_oauth_callback_overwrites_previous_pending(oauth_client):
     oauth_client.get("/api/oauth/callback", params={"code": "second", "state": "google-workspace"})
     payload = json.loads((oauth_client.tmp / "oauth_callback.json").read_text())
     assert payload["code"] == "second"
+
+
+def test_oauth_callback_escapes_state_in_success_html(oauth_client):
+    resp = oauth_client.get(
+        "/api/oauth/callback",
+        params={"code": "fake-code", "state": "<script>alert(1)</script>"},
+    )
+    assert resp.status_code == 200
+    assert "<script>" not in resp.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in resp.text
+
+
+def test_oauth_callback_only_reflects_relative_return_url(oauth_client):
+    safe = oauth_client.get(
+        "/api/oauth/callback",
+        params={"code": "fake-code", "return_url": "/talk"},
+    )
+    assert 'href="/talk"' in safe.text
+
+    unsafe = oauth_client.get(
+        "/api/oauth/callback",
+        params={"code": "fake-code", "return_url": "javascript:alert(1)"},
+    )
+    assert "javascript:alert" not in unsafe.text
+    assert "Back to Dream Talk" not in unsafe.text

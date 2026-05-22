@@ -50,6 +50,7 @@ Security:
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -78,14 +79,28 @@ def _callback_dir() -> Path:
     return base
 
 
+def _safe_return_path(return_url: str) -> str | None:
+    """Return a same-origin relative path, or None for unsafe links.
+
+    OAuth callbacks are public redirect targets, so never reflect arbitrary
+    absolute URLs or javascript: links into the success page. The agent can
+    pass "/talk" when it wants a button back into Dream Talk.
+    """
+    candidate = (return_url or "").strip()
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return None
+    return candidate
+
+
 def _success_page(skill: str, return_url: Optional[str] = None) -> str:
     """The HTML the user sees after authorising. Friendly, clear about
     what just happened, with a button back into Dream Talk if we know
     where to send them."""
-    safe_skill = (skill or "service").replace("<", "&lt;").replace(">", "&gt;")
+    safe_skill = html.escape(skill or "service")
     back_link = ""
-    if return_url:
-        safe_return = return_url.replace('"', "%22")
+    safe_return_path = _safe_return_path(return_url or "")
+    if safe_return_path:
+        safe_return = html.escape(safe_return_path, quote=True)
         back_link = f'<p><a href="{safe_return}" class="btn">Back to Dream Talk</a></p>'
     return f"""<!doctype html>
 <html lang="en">
@@ -112,7 +127,7 @@ def _success_page(skill: str, return_url: Optional[str] = None) -> str:
 
 
 def _error_page(reason: str) -> str:
-    safe = reason.replace("<", "&lt;").replace(">", "&gt;")
+    safe = html.escape(reason)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Authorisation failed</title>
 <style>body{{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1.5rem;text-align:center}}</style>

@@ -33,7 +33,7 @@ The canonical setup pattern (this is how the bundled skills' setup.py scripts ar
 3. **Send the auth URL to the user as a markdown link** so it renders as a single tap on the phone. Like: *"Tap here to authorize: [Authorize Google Calendar](THE-URL-FROM-THE-SCRIPT)"*. Do not paste a wall of OAuth URL text — make it a link.
 4. **Tell the user what'll happen briefly**: *"You'll see a Google consent screen, tap Allow, and you'll land back here. I'll pick it up automatically."* Then **stop talking** and wait.
 5. **Don't ask the user to copy-paste a code.** Dream Server has an OAuth passthrough at `/api/oauth/callback` — the provider's redirect lands there, dashboard-api writes the code to `data/persona/oauth_callback.json`, and you pick it up. **You do not need to instruct the user to find a code in their URL bar.**
-6. **After they tap, check `data/persona/oauth_callback.json`** with `read_file`. It contains `{"code": "...", "state": "<skill-id>", "captured_at": <unix-ts>}`. Read it, then run `setup.py --auth-code <CODE>` to finalise. Delete the callback file after.
+6. **After they tap, check `data/persona/oauth_callback.json`** with `read_file`. It contains `{"code": "...", "state": "<skill-id>", "captured_at": <unix-ts>}`. Before exchanging the code, confirm `state` matches the skill you just started and `captured_at` is less than fifteen minutes old. If either check fails, delete the callback file and restart the auth flow instead of using the code. If both checks pass, run `setup.py --auth-code <CODE>` to finalise, then delete the callback file.
 7. **Run `--check` again to verify, then confirm in one short sentence**: *"All set — Google Calendar's wired up. Want me to grab today's events?"*
 
 ### Generating the OAuth URL with the right redirect
