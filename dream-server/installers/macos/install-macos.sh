@@ -163,6 +163,25 @@ fi
 source "${SOURCE_ROOT}/installers/lib/readiness-summary.sh"
 
 # ── File-local helpers ──
+_close_inherited_fds_for_daemon() {
+    local fd fd_dir fd_name
+
+    for fd_dir in "/proc/${BASHPID:-$$}/fd" "/dev/fd"; do
+        [[ -d "$fd_dir" ]] || continue
+        for fd in "$fd_dir"/*; do
+            fd_name="${fd##*/}"
+            [[ "$fd_name" =~ ^[0-9]+$ ]] || continue
+            (( fd_name <= 2 || fd_name == 255 )) && continue
+            eval "exec ${fd_name}>&-" 2>/dev/null || true
+        done
+        return 0
+    done
+
+    for ((fd_name = 3; fd_name <= 254; fd_name++)); do
+        eval "exec ${fd_name}>&-" 2>/dev/null || true
+    done
+}
+
 # Build a launchd-friendly PATH that includes Docker and Homebrew prefixes.
 # launchd does NOT inherit the user's login shell PATH, so any path containing
 # `docker` or `brew`-installed tools must be baked into the plist explicitly.
@@ -1586,10 +1605,17 @@ else
         _upgrade_script="$INSTALL_DIR/scripts/bootstrap-upgrade.sh"
 
         if [[ -x "$_upgrade_script" ]] || [[ -f "$_upgrade_script" ]]; then
-            nohup bash "$_upgrade_script" \
-                "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
-                "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
-                > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1 &
+            # Start the long-lived downloader from a child shell that closes
+            # inherited non-stdio FDs first. Otherwise caller-owned advisory
+            # locks (FD 9, FD 200, etc.) can stay held until the model download
+            # exits.
+            (
+                _close_inherited_fds_for_daemon
+                exec nohup bash "$_upgrade_script" \
+                    "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
+                    "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
+                    > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1
+            ) &
             ai "Full model ($FULL_LLM_MODEL) downloading in background."
             ai "Check progress: tail -f $INSTALL_DIR/logs/model-upgrade.log"
         else

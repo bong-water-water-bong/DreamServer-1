@@ -50,6 +50,9 @@ test: ## Run unit and contract tests
 	@echo "=== bootstrap OpenClaw compose-guard regression ==="
 	@bash tests/test-bootstrap-openclaw-compose-guard.sh
 	@echo ""
+	@echo "=== bootstrap-upgrade spawn closes inherited FDs ==="
+	@bash tests/test-bootstrap-upgrade-close-inherited-fds.sh
+	@echo ""
 	@echo "=== macOS dream-host-agent bootstrap verification ==="
 	@bash tests/test-macos-host-agent-verification.sh
 	@echo ""

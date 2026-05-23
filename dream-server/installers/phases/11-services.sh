@@ -37,6 +37,25 @@ else
         ' "$env_file" > "$tmp_file" && cat "$tmp_file" > "$env_file" && rm -f "$tmp_file"
     }
 
+    _phase11_close_inherited_fds_for_daemon() {
+        local fd fd_dir fd_name
+
+        for fd_dir in "/proc/${BASHPID:-$$}/fd" "/dev/fd"; do
+            [[ -d "$fd_dir" ]] || continue
+            for fd in "$fd_dir"/*; do
+                fd_name="${fd##*/}"
+                [[ "$fd_name" =~ ^[0-9]+$ ]] || continue
+                (( fd_name <= 2 || fd_name == 255 )) && continue
+                eval "exec ${fd_name}>&-" 2>/dev/null || true
+            done
+            return 0
+        done
+
+        for ((fd_name = 3; fd_name <= 254; fd_name++)); do
+            eval "exec ${fd_name}>&-" 2>/dev/null || true
+        done
+    }
+
     _phase11_apply_cpu_fallback() {
         local missing="$1"
         show_amd_gpu_device_guidance "$missing"
@@ -848,11 +867,17 @@ except Exception:
             . "$SCRIPT_DIR/installers/lib/background-tasks.sh"
         fi
 
-        nohup bash "$SCRIPT_DIR/scripts/bootstrap-upgrade.sh" \
-            "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
-            "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
-            "$BOOTSTRAP_GGUF_FILE" \
-            > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1 &
+        # Start the long-lived downloader from a child shell that closes inherited
+        # non-stdio FDs first. Otherwise caller-owned advisory locks (FD 9, FD
+        # 200, etc.) can stay held until the model download exits.
+        (
+            _phase11_close_inherited_fds_for_daemon
+            exec nohup bash "$SCRIPT_DIR/scripts/bootstrap-upgrade.sh" \
+                "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
+                "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
+                "$BOOTSTRAP_GGUF_FILE" \
+                > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1
+        ) &
         _upgrade_pid=$!
 
         if command -v bg_task_start &>/dev/null; then
