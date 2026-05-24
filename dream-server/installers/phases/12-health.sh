@@ -105,11 +105,18 @@ _check_container_health() {
     return 1
 }
 
-# Core service health checks with adaptive timeouts
-# Format: _check_health "name" "url" max_attempts timeout_per_request
-# llama-server: 150 attempts * adaptive backoff (2s->8s) = up to ~20 minutes (model loading can be slow)
-dream_progress 86 "health" "Waiting for LLM engine"
-_check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 150 15 "$(sr_container llama-server)"
+# Core service health checks with adaptive timeouts.
+# Cloud mode does not launch local llama-server; LiteLLM/external APIs are the
+# LLM surface, so do not wait on a container that intentionally is not running.
+if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
+    dream_progress 86 "health" "Waiting for LiteLLM gateway"
+    _check_health "LiteLLM" "http://127.0.0.1:${SERVICE_PORTS[litellm]:-4000}${SERVICE_HEALTH[litellm]:-/health/readiness}" 60 10 "$(sr_container litellm)"
+else
+    # Format: _check_health "name" "url" max_attempts timeout_per_request
+    # llama-server: 150 attempts * adaptive backoff (2s->8s) = up to ~20 minutes (model loading can be slow)
+    dream_progress 86 "health" "Waiting for LLM engine"
+    _check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 150 15 "$(sr_container llama-server)"
+fi
 
 # ── Pre-warm the LLM slot so the first real chat doesn't 503 ──
 #
@@ -128,21 +135,25 @@ _check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-80
 # cold path inside the installer (where time isn't surprising) so Hermes
 # lands on an already-hot slot. Bounded by curl --max-time so a stalled
 # llama-server doesn't hang phase 12.
-dream_progress 87 "health" "Pre-warming LLM slot"
-_prewarm_api_path="/v1"
-_prewarm_model="${GGUF_FILE:-${LLM_MODEL:-default}}"
-if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
-    _prewarm_api_path="/api/v1"
-    [[ -n "${GGUF_FILE:-}" ]] && _prewarm_model="extra.${GGUF_FILE}"
-fi
-_prewarm_url="http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${_prewarm_api_path}/chat/completions"
-_prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
-if curl -sf --max-time 120 -X POST "$_prewarm_url" \
-    -H "Content-Type: application/json" \
-    -d "$_prewarm_body" >/dev/null 2>&1; then
-    ai_ok "LLM slot pre-warmed (first real chat will be fast)"
+if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
+    ai "Cloud mode - skipping local llama-server pre-warm"
 else
-    ai_warn "LLM pre-warm timed out — first Hermes prompt may need a retry or two while the slot finishes warming."
+    dream_progress 87 "health" "Pre-warming LLM slot"
+    _prewarm_api_path="/v1"
+    _prewarm_model="${GGUF_FILE:-${LLM_MODEL:-default}}"
+    if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+        _prewarm_api_path="/api/v1"
+        [[ -n "${GGUF_FILE:-}" ]] && _prewarm_model="extra.${GGUF_FILE}"
+    fi
+    _prewarm_url="http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${_prewarm_api_path}/chat/completions"
+    _prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
+    if curl -sf --max-time 120 -X POST "$_prewarm_url" \
+        -H "Content-Type: application/json" \
+        -d "$_prewarm_body" >/dev/null 2>&1; then
+        ai_ok "LLM slot pre-warmed (first real chat will be fast)"
+    else
+        ai_warn "LLM pre-warm timed out — first Hermes prompt may need a retry or two while the slot finishes warming."
+    fi
 fi
 
 # Open WebUI: 150 attempts * adaptive backoff = up to ~20 minutes

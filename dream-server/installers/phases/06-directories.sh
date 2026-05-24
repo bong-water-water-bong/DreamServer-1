@@ -301,6 +301,24 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     LANGFUSE_INIT_USER_EMAIL=$(_env_get LANGFUSE_INIT_USER_EMAIL "admin@dreamserver.local")
     LANGFUSE_INIT_USER_PASSWORD=$(_env_get LANGFUSE_INIT_USER_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
     MODEL_PROFILE_VALUE=$(_env_get MODEL_PROFILE "${MODEL_PROFILE_REQUESTED:-${MODEL_PROFILE:-qwen}}")
+    DREAM_MODE_VALUE="$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "lemonade"; else echo "${DREAM_MODE:-local}"; fi)"
+    _default_llm_api_url="$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "http://litellm:4000"; elif [[ "${DREAM_MODE:-local}" == "local" ]]; then echo "http://llama-server:8080"; else echo "http://litellm:4000"; fi)"
+    LLM_API_URL_VALUE=$(_env_get LLM_API_URL "$_default_llm_api_url")
+    if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
+        _default_hermes_base_url="http://litellm:4000/v1"
+        _default_hermes_api_key="${LITELLM_KEY}"
+    elif [[ "$GPU_BACKEND" == "amd" ]]; then
+        _default_hermes_base_url="http://litellm:4000/v1"
+        _default_hermes_api_key="${LITELLM_KEY}"
+    else
+        _default_hermes_base_url="http://llama-server:8080/v1"
+        _default_hermes_api_key="sk-dream-hermes-local"
+    fi
+    HERMES_LLM_BASE_URL_VALUE=$(_env_get HERMES_LLM_BASE_URL "$_default_hermes_base_url")
+    HERMES_LLM_API_KEY_VALUE=$(_env_get HERMES_LLM_API_KEY "$_default_hermes_api_key")
+    LLM_API_URL="$LLM_API_URL_VALUE"
+    HERMES_LLM_BASE_URL="$HERMES_LLM_BASE_URL_VALUE"
+    HERMES_LLM_API_KEY="$HERMES_LLM_API_KEY_VALUE"
 
     _select_auto_cpu_value() {
         local key="$1" detected="$2"
@@ -457,8 +475,8 @@ BIND_ADDRESS=${BIND_ADDRESS}
 HOST_LAN_IP=${HOST_LAN_IP}
 
 #=== LLM Backend Mode ===
-DREAM_MODE=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "lemonade"; else echo "${DREAM_MODE:-local}"; fi)
-LLM_API_URL=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "http://litellm:4000"; elif [[ "${DREAM_MODE:-local}" == "local" ]]; then echo "http://llama-server:8080"; else echo "http://litellm:4000"; fi)
+DREAM_MODE=${DREAM_MODE_VALUE}
+LLM_API_URL=${LLM_API_URL_VALUE}
 AMD_INFERENCE_RUNTIME=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "lemonade"; else echo ""; fi)
 AMD_INFERENCE_BACKEND=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "${BACKEND_LEMONADE_LINUX_BACKEND:-rocm}"; else echo ""; fi)
 AMD_INFERENCE_LOCATION=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "container"; else echo ""; fi)
@@ -608,8 +626,8 @@ LANGFUSE_PORT=${LANGFUSE_PORT}
 # APIConnectionError. litellm wraps with "*" wildcard normalization +
 # retry logic, hiding both bumps. On non-AMD installs, talk direct to
 # llama-server (native llama.cpp tolerates any model field).
-HERMES_LLM_BASE_URL=${HERMES_LLM_BASE_URL:-$(if [[ "$GPU_BACKEND" == "amd" ]]; then echo "http://litellm:4000/v1"; else echo "http://llama-server:8080/v1"; fi)}
-HERMES_LLM_API_KEY=${HERMES_LLM_API_KEY:-$(if [[ "$GPU_BACKEND" == "amd" ]]; then echo "${LITELLM_KEY}"; else echo "sk-dream-hermes-local"; fi)}
+HERMES_LLM_BASE_URL=${HERMES_LLM_BASE_URL_VALUE}
+HERMES_LLM_API_KEY=${HERMES_LLM_API_KEY_VALUE}
 HERMES_LANGUAGE=${HERMES_LANGUAGE:-en}
 HERMES_PROXY_PORT=${HERMES_PROXY_PORT:-9120}
 HERMES_PROXY_UPSTREAM=${HERMES_PROXY_UPSTREAM:-dream-hermes:9119}

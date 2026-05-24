@@ -8,6 +8,7 @@ PROFILE_OVERLAYS=""
 ENV_MODE="false"
 SKIP_BROKEN="false"
 GPU_COUNT="1"
+DREAM_MODE="${DREAM_MODE:-local}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -39,6 +40,10 @@ while [[ $# -gt 0 ]]; do
             GPU_COUNT="${2:-$GPU_COUNT}"
             shift 2
             ;;
+        --dream-mode)
+            DREAM_MODE="${2:-$DREAM_MODE}"
+            shift 2
+            ;;
         *)
             echo "Unknown argument: $1" >&2
             exit 1
@@ -63,7 +68,7 @@ if ! "$PYTHON_CMD" -c 'import yaml' >/dev/null 2>&1; then
     exit 2
 fi
 
-"$PYTHON_CMD" - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" "$SKIP_BROKEN" "$GPU_COUNT" <<'PY'
+"$PYTHON_CMD" - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" "$SKIP_BROKEN" "$GPU_COUNT" "$DREAM_MODE" <<'PY'
 import os
 import pathlib
 import platform
@@ -76,8 +81,8 @@ gpu_backend = (sys.argv[3] or "nvidia").lower()
 profile_overlays = [x.strip() for x in (sys.argv[4] or "").split(",") if x.strip()]
 env_mode = (sys.argv[5] or "false").lower() == "true"
 skip_broken = (sys.argv[6] or "false").lower() == "true"
-dream_mode = os.environ.get("DREAM_MODE", "local").lower()
 gpu_count = int(sys.argv[7] or "1")
+dream_mode = (sys.argv[8] or os.environ.get("DREAM_MODE", "local")).lower()
 
 IS_DARWIN = platform.system() == "Darwin"
 APPLE_OVERLAY = "installers/macos/docker-compose.macos.yml" if IS_DARWIN else "docker-compose.apple.yml"
@@ -91,6 +96,13 @@ primary = "docker-compose.yml"
 if profile_overlays and existing(profile_overlays):
     resolved = profile_overlays
     primary = profile_overlays[-1]
+elif dream_mode == "cloud" or tier == "CLOUD":
+    if existing(["docker-compose.base.yml", "docker-compose.cloud.yml"]):
+        resolved = ["docker-compose.base.yml", "docker-compose.cloud.yml"]
+        primary = "docker-compose.cloud.yml"
+    elif existing(["docker-compose.base.yml"]):
+        resolved = ["docker-compose.base.yml"]
+        primary = "docker-compose.base.yml"
 elif tier in {"AP_ULTRA", "AP_PRO", "AP_BASE"}:
     if existing(["docker-compose.base.yml", APPLE_OVERLAY]):
         resolved = ["docker-compose.base.yml", APPLE_OVERLAY]
@@ -420,7 +432,7 @@ if ext_dir.exists():
             # service_healthy` inside compose.local.yaml overlays can never be
             # satisfied and deadlocks the stack. The real LLM-ready gate on macOS
             # is the `llama-server-ready` sidecar defined in the macOS overlay.
-            if dream_mode in ("local", "hybrid", "lemonade") and gpu_backend != "apple":
+            if dream_mode in ("local", "hybrid", "lemonade") and tier != "CLOUD" and gpu_backend != "apple":
                 local_mode_overlay = service_dir / "compose.local.yaml"
                 if local_mode_overlay.exists():
                     resolved.append(str(local_mode_overlay.relative_to(script_dir)))
@@ -538,7 +550,7 @@ if user_ext_dir.exists():
                 # satisfied and deadlocks the stack. The real LLM-ready gate on macOS
                 # is the `llama-server-ready` sidecar defined in the macOS overlay.
                 # Mirrors the same guard in the built-in loop above (PR #1004).
-                if dream_mode in ("local", "hybrid", "lemonade") and gpu_backend != "apple":
+                if dream_mode in ("local", "hybrid", "lemonade") and tier != "CLOUD" and gpu_backend != "apple":
                     local_mode_overlay = service_dir / "compose.local.yaml"
                     if local_mode_overlay.exists():
                         # Same content scan as compose.yaml/gpu overlay above —

@@ -509,7 +509,7 @@ _regenerate_compose_flags() {
         # from the persisted cache.
         "$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
-            --gpu-count "${GPU_COUNT:-1}" \
+            --gpu-count "${GPU_COUNT:-1}" --dream-mode "${DREAM_MODE:-local}" \
             > "$INSTALL_DIR/.compose-flags" 2>/dev/null || rm -f "$INSTALL_DIR/.compose-flags"
     else
         rm -f "$INSTALL_DIR/.compose-flags"
@@ -612,6 +612,10 @@ get_compose_flags() {
                 fi
                 prev="$tok"
             done
+            if [[ "${DREAM_MODE:-local}" == "cloud" ]] && \
+               { [[ "$cached" == *"docker-compose.cpu.yml"* ]] || [[ "$cached" == *"compose.local.yaml"* ]] || [[ "$cached" != *"docker-compose.cloud.yml"* ]]; }; then
+                stale=1
+            fi
             if [[ "$stale" == "0" ]]; then
                 echo "$cached"
                 return
@@ -628,7 +632,7 @@ get_compose_flags() {
         # this fallback path resolves to a single-GPU stack on multi-GPU hosts.
         base_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
-            --gpu-count "${GPU_COUNT:-1}")
+            --gpu-count "${GPU_COUNT:-1}" --dream-mode "${DREAM_MODE:-local}")
         echo "$base_flags"
     elif [[ -f "$INSTALL_DIR/docker-compose.base.yml" ]]; then
         base_flags="-f docker-compose.base.yml"
@@ -2740,6 +2744,7 @@ EOF
 #=============================================================================
 cmd_mode() {
     check_install; cd "$INSTALL_DIR"
+    load_env || true
     local mode="${1:-}"
 
     if [[ -z "$mode" ]]; then
@@ -2794,9 +2799,15 @@ cmd_mode() {
     if [[ "$mode" == "local" ]]; then
         api_url="http://llama-server:8080"
         _env_set "LLM_API_URL" "$api_url"
+        _env_set "HERMES_LLM_BASE_URL" "http://llama-server:8080/v1"
+        _env_set "HERMES_LLM_API_KEY" "sk-dream-hermes-local"
     else
         api_url="http://litellm:4000"
         _env_set "LLM_API_URL" "$api_url"
+        _env_set "HERMES_LLM_BASE_URL" "http://litellm:4000/v1"
+        if [[ -n "${LITELLM_KEY:-}" ]]; then
+            _env_set "HERMES_LLM_API_KEY" "$LITELLM_KEY"
+        fi
         # Auto-enable litellm
         local litellm_cf="$INSTALL_DIR/extensions/services/litellm/compose.yaml"
         local litellm_disabled="${litellm_cf}.disabled"
@@ -2816,6 +2827,8 @@ cmd_mode() {
     echo -e "${BLUE}━━━ Mode updated ━━━${NC}"
     echo "  DREAM_MODE  = $mode"
     echo "  LLM_API_URL = $api_url"
+    load_env || true
+    _regenerate_compose_flags
     success "Switched to $mode mode. Run 'dream restart' to apply."
 }
 

@@ -164,7 +164,7 @@ else
         # for the rest of the install AND every subsequent dream-cli invocation.
         _refreshed_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
-            --gpu-count "${GPU_COUNT:-1}" 2>/dev/null) || true
+            --gpu-count "${GPU_COUNT:-1}" --dream-mode "${DREAM_MODE:-local}" 2>/dev/null) || true
         if [[ -n "$_refreshed_flags" ]]; then
             COMPOSE_FLAGS="$_refreshed_flags"
             log "Compose flags refreshed from install directory"
@@ -509,9 +509,9 @@ MODELS_INI_EOF
                 fi
             fi
         fi
+    fi
 
-        # ── Hermes config substitution ──
-        #
+    if [[ "${ENABLE_HERMES:-false}" == "true" ]]; then
         # The Hermes Agent extension ships a config template at
         # extensions/services/hermes/cli-config.yaml.template which is
         # mounted into the container at /opt/hermes/cli-config.yaml.example.
@@ -534,12 +534,17 @@ MODELS_INI_EOF
         #
         # Substitute both values now, then verify. macOS does its own
         # substitution in installers/macos/install-macos.sh.
+        _python_cmd="$(ds_detect_python_cmd 2>/dev/null || command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
         _hermes_tpl="$INSTALL_DIR/extensions/services/hermes/cli-config.yaml.template"
         if [[ -f "$_hermes_tpl" ]]; then
-            # Model name: Lemonade prefixes with "extra.", llama.cpp uses
-            # the file name as-is.
-            _hermes_model="$GGUF_FILE"
-            if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+            # Model name: cloud mode uses the routed model id; Lemonade
+            # prefixes GGUF files with "extra."; llama.cpp uses the file name.
+            if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
+                _hermes_model="${LLM_MODEL:-default}"
+            else
+                _hermes_model="$GGUF_FILE"
+            fi
+            if [[ "${GPU_BACKEND:-}" == "amd" && "${DREAM_MODE:-local}" != "cloud" ]]; then
                 _hermes_model="extra.$GGUF_FILE"
             fi
             # base_url: on AMD/Lemonade hosts, route Hermes through litellm
@@ -553,13 +558,15 @@ MODELS_INI_EOF
             # macOS install-macos.sh handles the host.docker.internal swap.
             _hermes_base_url=""
             _hermes_api_key=""
-            if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+            if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
+                _hermes_base_url="${HERMES_LLM_BASE_URL:-http://litellm:4000/v1}"
+                _hermes_api_key="${HERMES_LLM_API_KEY:-${LITELLM_KEY:-}}"
+            elif [[ "${GPU_BACKEND:-}" == "amd" ]]; then
                 _hermes_base_url="http://litellm:4000/v1"
                 _hermes_api_key="${LITELLM_KEY:-}"
             fi
             _hermes_context="${MAX_CONTEXT:-131072}"
             _hermes_patcher="$INSTALL_DIR/scripts/patch-hermes-config.py"
-            _python_cmd="$(ds_detect_python_cmd 2>/dev/null || command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
             if [[ -n "$_python_cmd" && -f "$_hermes_patcher" ]]; then
                 _hermes_patcher_args=("$_hermes_tpl" --model "$_hermes_model" --context-length "$_hermes_context")
                 if [[ -n "$_hermes_base_url" ]]; then

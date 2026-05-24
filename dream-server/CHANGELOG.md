@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Linux cloud installs no longer launch or health-gate on local `llama-server`;
+  the compose resolver now selects a cloud overlay, skips local-mode dependency
+  overlays, and keeps Hermes SOUL persona generation outside the local-model
+  path.
 - Fleet distro lab Docker and Incus runners now take a shared host lock so
   tower2 distro dry-runs do not contend with heavy full-fleet install/build
   work on the same host.

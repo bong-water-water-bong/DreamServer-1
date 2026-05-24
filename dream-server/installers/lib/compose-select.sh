@@ -92,6 +92,7 @@ resolve_compose_config() {
             --gpu-backend "$GPU_BACKEND" \
             --profile-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
             --gpu-count "${GPU_COUNT:-1}" \
+            --dream-mode "${DREAM_MODE:-local}" \
             --env 2>>"$LOG_FILE")"
         load_env_from_output <<< "$COMPOSE_ENV"
     fi
