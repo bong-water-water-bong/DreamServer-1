@@ -34,6 +34,46 @@ Dream Server will keep Lemonade unmanaged:
 - it routes Dream services through LiteLLM, which calls the existing Lemonade
   service.
 
+This only applies to the LLM runtime. Dream Server's optional voice and image
+services are separate from Lemonade:
+
+- Whisper speech-to-text listens on port `9000`;
+- Kokoro text-to-speech listens on port `8880`;
+- ComfyUI image generation listens on port `8188`.
+
+If you choose **Full Stack**, Dream Server still enables those services by
+default. That is useful when Dream should own the full app stack, but it can
+conflict with an existing local AI setup that already runs Whisper, TTS, ComfyUI,
+or other services on the same ports.
+
+To wrap an existing Lemonade install without Dream-managed voice or image
+services:
+
+```bash
+./install.sh --use-existing-lemonade --no-voice --no-comfyui
+```
+
+If you are using `--all`, put the opt-out flags after `--all` because installer
+flags are processed left to right:
+
+```bash
+./install.sh --use-existing-lemonade --all --no-voice --no-comfyui
+```
+
+If you want Dream Server's Whisper or ComfyUI services but need to avoid port
+collisions, set alternate ports before running the installer:
+
+```bash
+WHISPER_PORT=9100 COMFYUI_PORT=8190 \
+  ./install.sh --use-existing-lemonade
+```
+
+If the installer reports that ports `9000`, `8880`, or `8188` are already in
+use, either disable the matching Dream feature or choose a different port where
+the installer supports it. Today, a Kokoro/TTS conflict on port `8880` should be
+handled with `--no-voice`. The port conflict is from the optional Dream service,
+not from Lemonade itself.
+
 Windows AMD installs already use a separate host-managed Lemonade path. These
 flags are for Linux installs that should attach to a pre-existing Lemonade SDK
 service.
