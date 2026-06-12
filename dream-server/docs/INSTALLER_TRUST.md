@@ -29,7 +29,7 @@ By default the bootstrap follows `main`. To pin a release tag or branch, set
 `DREAMSERVER_REF` before running the script:
 
 ```bash
-DREAMSERVER_REF=v2.5.0 bash get-dream-server.sh
+DREAMSERVER_REF=v2.5.4 bash get-dream-server.sh
 ```
 
 ### Manual Source Install
@@ -38,7 +38,7 @@ For the most auditable path, clone a known ref yourself and run the installer
 from the checked-out source:
 
 ```bash
-git clone --depth 1 --branch v2.5.0 https://github.com/Light-Heart-Labs/DreamServer.git
+git clone --depth 1 --branch v2.5.4 https://github.com/Light-Heart-Labs/DreamServer.git
 cd DreamServer/dream-server
 ./install.sh
 ```
@@ -52,7 +52,7 @@ Windows users should install from a normal user PowerShell, not an elevated
 Administrator shell:
 
 ```powershell
-git clone --depth 1 --branch v2.5.0 https://github.com/Light-Heart-Labs/DreamServer.git
+git clone --depth 1 --branch v2.5.4 https://github.com/Light-Heart-Labs/DreamServer.git
 cd DreamServer\dream-server
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\install.ps1
@@ -75,17 +75,20 @@ inspect it first:
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/dream-server/get-dream-server.sh
 less get-dream-server.sh
-DREAMSERVER_REF=v2.5.0 bash get-dream-server.sh
+DREAMSERVER_REF=v2.5.4 bash get-dream-server.sh
 ```
 
 On Windows, clone first and inspect `install.ps1` before running it:
 
 ```powershell
-git clone --depth 1 --branch v2.5.0 https://github.com/Light-Heart-Labs/DreamServer.git
+git clone --depth 1 --branch v2.5.4 https://github.com/Light-Heart-Labs/DreamServer.git
 cd DreamServer\dream-server
 notepad .\install.ps1
 .\install.ps1
 ```
+
+> `v2.5.2` and `v2.5.3` used an upstream Hermes Agent `sha-*` image tag that
+> was later pruned from Docker Hub. Use `v2.5.4` or newer for stable installs.
 
 ## Current Trust Boundary
 
