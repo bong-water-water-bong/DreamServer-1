@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 const REPO_URL: &str = "https://github.com/Light-Heart-Labs/DreamServer.git";
-const DEFAULT_INSTALL_REF: &str = "v2.5.0";
+const DEFAULT_INSTALL_REF: &str = "v2.5.4";
 
 fn install_ref() -> &'static str {
     option_env!("DREAMSERVER_INSTALL_REF").unwrap_or(DEFAULT_INSTALL_REF)

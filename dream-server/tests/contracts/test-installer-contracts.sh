@@ -132,6 +132,30 @@ for key in TTS_CPU_LIMIT TTS_CPU_RESERVATION WHISPER_CPU_LIMIT WHISPER_CPU_RESER
     || { echo "[FAIL] .env.schema.json missing bundled service CPU key: $key"; exit 1; }
 done
 
+echo "[contract] Hermes Agent image pin is durable and overrideable"
+hermes_default="nousresearch/hermes-agent:v2026.5.16"
+grep -qF "image: \${HERMES_AGENT_IMAGE:-${hermes_default}}" extensions/services/hermes/compose.yaml \
+  || { echo "[FAIL] Hermes compose must default to ${hermes_default} behind HERMES_AGENT_IMAGE"; exit 1; }
+grep -qF "\${HERMES_AGENT_IMAGE:-${hermes_default}}|HERMES" installers/phases/08-images.sh \
+  || { echo "[FAIL] image preflight must validate the same Hermes default used by compose"; exit 1; }
+grep -qF '"HERMES_AGENT_IMAGE_FALLBACK"' installers/phases/08-images.sh \
+  || { echo "[FAIL] Hermes image preflight must keep the fallback override path"; exit 1; }
+jq -e --arg image "$hermes_default" '
+  any(.entries[]?; .id == "hermes.agent" and .value == $image)
+  and any(.allow_variable_refs[]?; .path == "extensions/services/hermes/compose.yaml" and .default == $image)
+' config/dependency-lock.json >/dev/null \
+  || { echo "[FAIL] dependency-lock must record the durable Hermes image default"; exit 1; }
+if grep -R -n 'nousresearch/hermes-agent:sha-' \
+  .env.example .env.schema.json config/dependency-lock.json \
+  extensions/services/hermes installers/phases >/dev/null; then
+  echo "[FAIL] release-critical files must not pin upstream Hermes sha-* images"
+  grep -R -n 'nousresearch/hermes-agent:sha-' \
+    .env.example .env.schema.json config/dependency-lock.json \
+    extensions/services/hermes installers/phases || true
+  exit 1
+fi
+unset hermes_default
+
 echo "[contract] resolver scripts executable"
 for s in scripts/build-capability-profile.sh scripts/classify-hardware.sh scripts/load-backend-contract.sh scripts/resolve-compose-stack.sh scripts/preflight-engine.sh scripts/dream-doctor.sh scripts/simulate-installers.sh; do
   test -x "$s" || { echo "[FAIL] script not executable: $s"; exit 1; }

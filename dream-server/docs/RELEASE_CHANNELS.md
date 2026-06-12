@@ -15,7 +15,7 @@ ecosystems move quickly. Treat each ref intentionally.
 ## Default Guidance
 
 - New users can follow the README quickstart.
-- Operators who want reproducibility should pin a release tag.
+- `v2.5.4` is the current stable tag for operators who want reproducibility.
 - Forks should either fork-and-pin or fork-and-mirror.
 - Hardware builders should treat upstream release receipts as evidence, then add
   their own validation receipt for local changes.

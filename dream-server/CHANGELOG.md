@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.5.4] - 2026-06-12
+
+### Fixed
+- Stable installs no longer depend on the removed upstream
+  `nousresearch/hermes-agent:sha-*` image tag. Hermes now defaults to the
+  retained `nousresearch/hermes-agent:v2026.5.16` image and keeps the
+  `HERMES_AGENT_IMAGE` / `HERMES_AGENT_IMAGE_FALLBACK` override path for
+  emergency registry hotfixes.
+- Stable-facing version metadata, docs, and the desktop installer default ref
+  now point at `v2.5.4` so new stable installs avoid the broken `v2.5.2` and
+  `v2.5.3` Hermes image pin.
+
+### Validation
+- `docker manifest inspect nousresearch/hermes-agent:v2026.5.16` succeeds.
+- Installer contracts lock the Hermes default image to a durable version tag
+  and fail if release-critical files reintroduce `nousresearch/hermes-agent:sha-*`.
+
 ## [2.5.3] - 2026-05-26
 
 ### Fixed
