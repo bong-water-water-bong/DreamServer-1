@@ -177,8 +177,6 @@ def test_already_active_model_uses_env_file_before_stale_process_env(
     monkeypatch,
     tmp_path,
 ):
-    import routers.models as models_router
-
     models_router, install_dir, data_dir = _patch_model_router_paths(monkeypatch, tmp_path)
     (install_dir / ".env").write_text(
         "GGUF_FILE=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf\n"
