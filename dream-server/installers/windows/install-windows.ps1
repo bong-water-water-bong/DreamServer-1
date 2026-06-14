@@ -1139,18 +1139,16 @@ litellm_settings:
 
                 # Write a temp wrapper script to avoid Windows/PowerShell quoting
                 # issues. Empty arguments (e.g., SHA256 for some tiers) get lost
-                # during command-line parsing. The wrapper exits immediately after
-                # nohup detaches the long download, so installer automation is not
-                # held open by the background curl/process handles.
+                # during command-line parsing. The Scheduled Task owns the long
+                # upgrade process directly; Start-ScheduledTask returns immediately,
+                # while the task state/result keep reflecting the real download.
                 $wrapperScript = Join-Path $logDir "bootstrap-run.sh"
                 $wrapperContent = @"
 #!/bin/bash
 set -uo pipefail
 mkdir -p "`$(dirname "$bashUpgradeLog")"
-nohup bash "$bashScript" "$bashInstallDir" "$($fullTierConfig.GgufFile)" "$($fullTierConfig.GgufUrl)" "$($fullTierConfig.GgufSha256)" "$($fullTierConfig.LlmModel)" "$($fullTierConfig.MaxContext)" > "$bashUpgradeLog" 2> "$bashUpgradeErrLog" < /dev/null &
-pid=`$!
-echo "`$pid" > "$bashUpgradePidFile"
-disown "`$pid" 2>/dev/null || true
+echo "`$`$" > "$bashUpgradePidFile"
+exec bash "$bashScript" "$bashInstallDir" "$($fullTierConfig.GgufFile)" "$($fullTierConfig.GgufUrl)" "$($fullTierConfig.GgufSha256)" "$($fullTierConfig.LlmModel)" "$($fullTierConfig.MaxContext)" > "$bashUpgradeLog" 2> "$bashUpgradeErrLog" < /dev/null
 "@
                 [System.IO.File]::WriteAllText($wrapperScript, $wrapperContent.Replace("`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
 
