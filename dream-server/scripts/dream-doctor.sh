@@ -340,7 +340,7 @@ import re
 import shlex
 import sys
 from datetime import datetime, timezone
-from urllib import error, request
+from urllib import error, parse, request
 
 cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery, tts_http, tts_port, dgx_spark_gpu, dgx_spark_gpu_name, dgx_spark_compute_cap, llama_cuda_archs, dgx_spark_arch_status, dgx_spark_arch_message, hermes_slash_worker_count, hermes_slash_worker_max_count, root_dir_arg = sys.argv[1:]
 
@@ -616,6 +616,29 @@ def _looks_like_local_llama_route(value):
     )
 
 
+def _url_host(value):
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    candidate = raw if "://" in raw else f"http://{raw}"
+    try:
+        return (parse.urlparse(candidate).hostname or "").strip().lower()
+    except ValueError:
+        return ""
+
+
+def _is_loopback_host(host):
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_host_gateway(host):
+    return host in {"host.docker.internal", "gateway.docker.internal"}
+
+
+def _looks_like_installer_generated_lemonade_key(value):
+    return str(value or "").strip().startswith("sk-dream-lemonade-")
+
+
 def _source(path):
     try:
         return path.relative_to(root_dir).as_posix()
@@ -670,6 +693,18 @@ def _collect_inference_contract():
         or (
             env_get("AMD_INFERENCE_RUNTIME").strip().lower() == "lemonade"
             and env_get("AMD_INFERENCE_MANAGED").strip().lower() == "false"
+        )
+    )
+    lemonade_base_url = env_get("LEMONADE_BASE_URL", "")
+    lemonade_container_base_url = env_get("LEMONADE_CONTAINER_BASE_URL", "")
+    lemonade_base_host = _url_host(lemonade_base_url)
+    lemonade_container_host = _url_host(lemonade_container_base_url)
+    lemonade_auth_configured = any(
+        value and not _looks_like_installer_generated_lemonade_key(value)
+        for value in (
+            env_get("LEMONADE_API_KEY", ""),
+            env_get("LEMONADE_ADMIN_API_KEY", ""),
+            env_get("LITELLM_LEMONADE_API_KEY", ""),
         )
     )
 
@@ -773,6 +808,24 @@ def _collect_inference_contract():
                     f"External Lemonade is configured, but LLM_API_URL points at local llama-server ({llm_api_url}).",
                 )
             )
+        host_routed_lemonade = _is_host_gateway(lemonade_container_host)
+        network_lemonade = lemonade_base_host and not _is_loopback_host(lemonade_base_host)
+        if (host_routed_lemonade or network_lemonade) and not lemonade_auth_configured:
+            detail = (
+                "External Lemonade is routed through "
+                f"{lemonade_container_base_url or lemonade_base_url or 'an unknown host route'} "
+                "without a user-provided Lemonade API key. If the Lemonade daemon is bound "
+                "beyond loopback so Docker can reach it, that same daemon may also be reachable "
+                "from the LAN."
+            )
+            issues.append(
+                _inference_issue(
+                    "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE",
+                    "warn",
+                    ".env",
+                    detail,
+                )
+            )
 
     if dream_mode == "local" and not lemonade_external:
         if compose_flags_exists and cloud_overlay:
@@ -804,6 +857,7 @@ def _collect_inference_contract():
         "DS-RUNTIME-EXTERNAL-LEMONADE-CLOUD-OVERLAY-MISSING": "External Lemonade is missing the cloud compose overlay",
         "DS-RUNTIME-EXTERNAL-LEMONADE-OVERLAY-MISSING": "External Lemonade is missing its compose overlay",
         "DS-RUNTIME-EXTERNAL-LEMONADE-LOCAL-ROUTE": "External Lemonade still routes clients to local llama-server",
+        "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE": "External Lemonade host route has no user-provided API key",
         "DS-RUNTIME-LOCAL-CLOUD-OVERLAY": "Local mode still has the cloud compose overlay",
         "DS-RUNTIME-LOCAL-LITELLM-ROUTE": "Local mode routes through LiteLLM unexpectedly",
     }
@@ -831,6 +885,11 @@ def _collect_inference_contract():
         ],
         "DS-RUNTIME-EXTERNAL-LEMONADE-LOCAL-ROUTE": [
             "Route external Lemonade clients through LiteLLM, usually http://litellm:4000.",
+        ],
+        "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE": [
+            "Configure Lemonade with LEMONADE_API_KEY or LEMONADE_ADMIN_API_KEY, then reinstall with --lemonade-api-key.",
+            "Prefer binding Lemonade to a host-only or Docker-reachable interface instead of exposing it broadly on 0.0.0.0.",
+            "Keep firewall rules scoped to the Docker network subnet when host-routed Lemonade is required.",
         ],
         "DS-RUNTIME-LOCAL-CLOUD-OVERLAY": [
             "Regenerate compose flags for local mode so local inference starts normally.",
@@ -870,6 +929,8 @@ def _collect_inference_contract():
             "cloud_overlay": cloud_overlay,
             "lemonade_external_overlay": lemonade_external_overlay,
             "local_inference_overlay": local_inference_overlay,
+            "lemonade_auth_configured": lemonade_auth_configured,
+            "lemonade_host_routed": _is_host_gateway(lemonade_container_host),
         },
         "issues": issues,
         "issue_counts": {

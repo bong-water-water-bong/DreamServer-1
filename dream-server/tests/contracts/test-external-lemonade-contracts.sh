@@ -78,6 +78,12 @@ grep -q 'LiteLLM external Lemonade gateway' dream-preflight.sh \
 grep -q 'dream-litellm' dream-preflight.sh \
   || { echo "[FAIL] dream-preflight must check dream-litellm for external Lemonade"; exit 1; }
 
+echo "[contract] doctor warns on unauthenticated host-routed external Lemonade"
+grep -q 'DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE' scripts/dream-doctor.sh \
+  || { echo "[FAIL] dream-doctor must warn when external Lemonade is host-routed without a user API key"; exit 1; }
+grep -q 'sk-dream-lemonade-' scripts/dream-doctor.sh \
+  || { echo "[FAIL] dream-doctor must distinguish installer-generated LiteLLM provider keys from user Lemonade API keys"; exit 1; }
+
 echo "[contract] resolver selects cloud + external overlay instead of managed AMD overlay"
 resolved="$(LEMONADE_EXTERNAL=true DREAM_MODE=lemonade \
   ./scripts/resolve-compose-stack.sh --script-dir "$ROOT_DIR" --dream-mode lemonade --gpu-backend amd --tier SH_LARGE --env)"

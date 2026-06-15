@@ -194,6 +194,62 @@ else
     fail "diagnosis next steps missing from autofix hints"
 fi
 
+cat > "$ENV_PATH" <<'ENV'
+DREAM_MODE=lemonade
+GPU_BACKEND=amd
+LLM_API_URL=http://litellm:4000
+HERMES_LLM_BASE_URL=http://litellm:4000/v1
+LEMONADE_EXTERNAL=true
+LEMONADE_BASE_URL=http://localhost:13305
+LEMONADE_CONTAINER_BASE_URL=http://host.docker.internal:13305
+LITELLM_LEMONADE_API_KEY=sk-dream-lemonade-fixture
+AMD_INFERENCE_RUNTIME=lemonade
+AMD_INFERENCE_MANAGED=false
+AMD_INFERENCE_RUNTIME_MODE=external-lemonade
+ENV
+cat > "$FLAGS_PATH" <<'FLAGS'
+-f docker-compose.base.yml -f docker-compose.cloud.yml -f docker-compose.lemonade-external.yml
+FLAGS
+
+if (cd "$ROOT_DIR" && bash scripts/dream-doctor.sh "$REPORT" >/dev/null 2>&1); then
+    pass "dream-doctor runs with external Lemonade fixture"
+else
+    fail "dream-doctor failed with external Lemonade fixture"
+fi
+
+if jq -e '.diagnoses[] | select(.id == "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE")' "$REPORT" >/dev/null; then
+    pass "external Lemonade host route without user API key is diagnosed"
+else
+    fail "external Lemonade host route without user API key was not diagnosed"
+fi
+
+cat > "$ENV_PATH" <<'ENV'
+DREAM_MODE=lemonade
+GPU_BACKEND=amd
+LLM_API_URL=http://litellm:4000
+HERMES_LLM_BASE_URL=http://litellm:4000/v1
+LEMONADE_EXTERNAL=true
+LEMONADE_BASE_URL=http://localhost:13305
+LEMONADE_CONTAINER_BASE_URL=http://host.docker.internal:13305
+LEMONADE_API_KEY=sk-user-lemonade-fixture
+LITELLM_LEMONADE_API_KEY=sk-user-lemonade-fixture
+AMD_INFERENCE_RUNTIME=lemonade
+AMD_INFERENCE_MANAGED=false
+AMD_INFERENCE_RUNTIME_MODE=external-lemonade
+ENV
+
+if (cd "$ROOT_DIR" && bash scripts/dream-doctor.sh "$REPORT" >/dev/null 2>&1); then
+    pass "dream-doctor runs with authenticated external Lemonade fixture"
+else
+    fail "dream-doctor failed with authenticated external Lemonade fixture"
+fi
+
+if jq -e '.diagnoses[] | select(.id == "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE")' "$REPORT" >/dev/null; then
+    fail "authenticated external Lemonade fixture still emitted unauthenticated route diagnosis"
+else
+    pass "user API key suppresses unauthenticated external Lemonade diagnosis"
+fi
+
 echo ""
 echo "Result: $PASSED passed, $FAILED failed, $SKIPPED skipped"
 [[ "$FAILED" -eq 0 ]]
