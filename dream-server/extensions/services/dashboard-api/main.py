@@ -63,6 +63,7 @@ from routers import (
     talk,
     tailscale,
     usage,
+    careops,
 )
 from settings import (
     _ENV_ASSIGNMENT_RE, _ENV_COMMENTED_ASSIGNMENT_RE, _SETTINGS_APPLY_ALLOWED_SERVICES, _parse_env_text, _read_env_map_from_path,
@@ -476,6 +477,33 @@ def _infer_gpu_count(gpu_info) -> int:
     if " + " in gpu_info.name:
         return gpu_info.name.count(" + ") + 1
     return 1
+
+
+def _build_enterprise_profile() -> dict[str, Any]:
+    """Return staff-surface profile flags for enterprise deployments."""
+    raw_profile = (
+        os.environ.get("DREAM_ENTERPRISE_PROFILE")
+        or os.environ.get("DREAM_PROFILE")
+        or ""
+    ).strip().lower()
+    careops_flag = os.environ.get("DREAM_CAREOPS_MODE", "").strip().lower()
+    careops_enabled = raw_profile in {"careops", "healthcare", "healthcare-enterprise"} or careops_flag in {"1", "true", "yes", "on"}
+
+    if not careops_enabled:
+        return {
+            "profile": "standard",
+            "staffSurface": "dashboard",
+            "hideModelControls": False,
+            "hideExtensionStore": False,
+        }
+
+    return {
+        "profile": "careops",
+        "staffSurface": "work-queues",
+        "hideModelControls": True,
+        "hideExtensionStore": True,
+        "defaultRoute": "/careops",
+    }
 
 
 def _serialize_gpu(gpu_info) -> Optional[dict]:
@@ -1002,6 +1030,7 @@ app.include_router(oauth_passthrough.router)
 app.include_router(talk.router)
 app.include_router(tailscale.router)
 app.include_router(usage.router)
+app.include_router(careops.router)
 
 
 # ================================================================
@@ -1234,6 +1263,7 @@ async def api_status(api_key: str = Depends(verify_api_key)):
             "system": {"uptime": 0, "hostname": os.environ.get("HOSTNAME", "dream-server")},
             "inference": {"tokensPerSecond": 0, "lifetimeTokens": 0,
                           "loadedModel": None, "contextSize": None},
+            "enterprise": _build_enterprise_profile(),
             "manifest_errors": MANIFEST_ERRORS,
         }
 
@@ -1345,6 +1375,7 @@ async def _build_api_status() -> dict:
             "loadedModel": loaded_model or (model_data["name"] if model_data else None),
             "contextSize": context_size or (model_data["contextLength"] if model_data else None),
         },
+        "enterprise": _build_enterprise_profile(),
         "manifest_errors": MANIFEST_ERRORS,
     }
     return result

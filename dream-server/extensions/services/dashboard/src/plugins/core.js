@@ -5,12 +5,14 @@ import {
   Puzzle,
   Activity,
   Box,
+  ClipboardList,
   Network,
   UserPlus,
   CreditCard,
 } from 'lucide-react'
 
 const Dashboard = lazy(() => import('../pages/Dashboard'))
+const CareOps = lazy(() => import('../pages/CareOps'))
 const SettingsPage = lazy(() => import('../pages/Settings'))
 const Extensions = lazy(() => import('../pages/Extensions'))
 const GPUMonitor = lazy(() => import('../pages/GPUMonitor'))
@@ -18,6 +20,10 @@ const Models = lazy(() => import('../pages/Models'))
 const ServiceMap = lazy(() => import('../pages/ServiceMap'))
 const Invites = lazy(() => import('../pages/Invites'))
 const Usage = lazy(() => import('../pages/Usage'))
+
+function isCareOpsProfile({ status } = {}) {
+  return status?.enterprise?.profile === 'careops'
+}
 
 export const coreRoutes = [
   {
@@ -29,6 +35,16 @@ export const coreRoutes = [
     getProps: ({ status, loading }) => ({ status, loading }),
     sidebar: true,
     order: 0,
+  },
+  {
+    id: 'careops',
+    path: '/careops',
+    label: 'CareOps',
+    icon: ClipboardList,
+    component: CareOps,
+    getProps: () => ({}),
+    sidebar: true,
+    order: 0.5,
   },
   {
     id: 'gpu-monitor',
@@ -48,7 +64,7 @@ export const coreRoutes = [
     icon: Puzzle,
     component: Extensions,
     getProps: () => ({}),
-    sidebar: true,
+    sidebar: context => !isCareOpsProfile(context),
     order: 2,
   },
   {
@@ -58,7 +74,7 @@ export const coreRoutes = [
     icon: Network,
     component: ServiceMap,
     getProps: () => ({}),
-    sidebar: true,
+    sidebar: context => !isCareOpsProfile(context),
     order: 2.1,
   },
   {
@@ -68,7 +84,7 @@ export const coreRoutes = [
     icon: Box,
     component: Models,
     getProps: () => ({}),
-    sidebar: true,
+    sidebar: context => !isCareOpsProfile(context),
     order: 3,
   },
   // Usage + Setup / Owner are reachable from Settings rather than the top-level
