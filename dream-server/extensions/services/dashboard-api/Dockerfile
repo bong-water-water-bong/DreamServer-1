@@ -11,6 +11,7 @@ WORKDIR /app
 # Install system deps for GPU metrics access
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -26,14 +27,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 # filesystem shape (one flat module dir per service).
 COPY *.py ./
 COPY routers/ routers/
+COPY docker-entrypoint.sh /usr/local/bin/dashboard-api-entrypoint
 
 # Non-root user
 RUN useradd -m -u 1000 dreamer
 
-# B1 fix: Create /data directory and make it writable for API key generation
-RUN mkdir -p /data && chown dreamer:dreamer /data
-
-USER dreamer
+# Create the default /data path for unmounted dev containers. Production
+# installs bind-mount ./data over it, so the entrypoint repairs ownership at
+# container start before dropping back to this non-root account.
+RUN mkdir -p /data \
+    && chown dreamer:dreamer /data \
+    && chmod 0755 /usr/local/bin/dashboard-api-entrypoint
 
 ENV DASHBOARD_API_PORT=3002
 
@@ -43,4 +47,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 
 EXPOSE ${DASHBOARD_API_PORT}
 
-CMD uvicorn main:app --host 0.0.0.0 --port ${DASHBOARD_API_PORT}
+ENTRYPOINT ["dashboard-api-entrypoint"]
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${DASHBOARD_API_PORT:-3002}"]
