@@ -3448,3 +3448,22 @@ class TestCallAgentErrorNarrowing:
         assert any(
             "stale-progress cleanup failed" in r.message for r in caplog.records
         )
+
+
+def test_extensions_lock_falls_back_when_data_root_is_unwritable(
+    tmp_path, monkeypatch,
+):
+    """Extension installs should still lock when /data itself is not writable."""
+    from routers import extensions as ext_module
+
+    blocked_parent = tmp_path / "blocked-parent"
+    blocked_parent.write_text("not a directory", encoding="utf-8")
+    fallback_lock = tmp_path / "config" / ".extensions-lock"
+    monkeypatch.setattr(
+        ext_module,
+        "_extensions_lock_candidates",
+        lambda: [blocked_parent / ".extensions-lock", fallback_lock],
+    )
+
+    with ext_module._extensions_lock():
+        assert fallback_lock.exists()
